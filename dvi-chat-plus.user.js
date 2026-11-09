@@ -1,19 +1,21 @@
 // ==UserScript==
 // @name         [DVI]聊天增强
 // @namespace    https://deepveinidle.com/
-// @version      1.2.7
+// @version      1.2.8
 // @description  Deep Vein Idle 聊天栏增强：气泡排版、快捷复读、链接与图片安全预览。
+// @author       MT_
 // @match        https://deepveinidle.com/*
+// @match        https://cn.deepveinidle.com/*
 // @match        https://www.deepveinidle.com/*
 // @license      MIT
 // @run-at       document-idle
 // @grant        none
+// @icon         https://deepveinidle.com/favicon.ico
 // ==/UserScript==
 
 (function () {
     'use strict';
 
-    // 重复注入守卫，避免 Observer 与定时器开两套
     if (window.__DVI_CHAT_PLUS__) {
         console.log('[dvi-ce] 聊天增强已在运行，跳过重复注入');
         return;
@@ -21,7 +23,7 @@
     window.__DVI_CHAT_PLUS__ = true;
 
 
-    const SCRIPT_VERSION = '1.2.7';
+    const SCRIPT_VERSION = '1.2.8';
 
     const NS = 'dvi-ce';
 
@@ -31,23 +33,24 @@
         // 缩略图最大尺寸
         maxImgW: 240,
         maxImgH: 150,
-        // 超过此尺寸按大图处理，不放聊天里
+        // 超过此尺寸按大图处理
         bigImgW: 900,
         bigImgH: 700,
         // 出图超时则退回链接按钮
         imgTimeout: 6000,
         // 已有草稿时：追加还是覆盖
         appendWhenDraft: true,
-        // 兜底重扫间隔，主要靠 MutationObserver
+        // 重扫聊天间隔
         rescanInterval: 8000,
     };
-    // 小工具
+    // 正则匹配图片扩展名
     const IMG_EXT_RE = /\.(png|jpe?g|gif|gifv|webp|avif|bmp|svg)$/i;
 
-    // 这些域名默认当图片处理
+    // 图床域名
     const IMG_HOSTS = {
         'i.imgur.com': 1,
         'i.ibb.co': 1,
+        'i.redd.it': 1,
         'cdn.discordapp.com': 1,
         'media.discordapp.net': 1,
         'pbs.twimg.com': 1,
@@ -59,7 +62,7 @@
         'files.catbox.moe': 1,
     };
 
-    // 只取 ASCII 可见字符，遇中文断开
+    // 只取 ASCII 可见字符
     const URL_RE = /\bhttps?:\/\/[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+/g;
     // 剥掉尾部标点
     const TRAIL_RE = /[)\],.;:!?'"]$/;
@@ -217,8 +220,7 @@
         document.addEventListener('keydown', onConfirmKey, true);
         openBtn.focus();
     }
-    // 链接转按钮
-    // 渲染成按钮而非 <a>，点击先确认
+    // 链接按钮
     function buildLinkButton(url) {
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -235,7 +237,7 @@
         return btn;
     }
 
-    // 大图只给按钮
+    // 大图按钮
     function buildBigImageButton(url, w, h) {
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -263,7 +265,7 @@
         return log.offsetHeight + log.scrollTop + 30 > log.scrollHeight;
     }
 
-    /* 内联图片：小图直显，大图转按钮，失败退回链接 */
+    /* 内联图片：小图直显，大图转按钮，失败返回链接模式 */
 
     function buildImageLink(url) {
         const wrap = document.createElement('span');
@@ -271,7 +273,6 @@
         wrap.setAttribute('data-url', url);
         wrap.setAttribute('data-no-i18n', '');
 
-        // 贴底状态要提前记
         const wasBottom = isLogAtBottom();
 
         const img = document.createElement('img');
@@ -297,16 +298,15 @@
             if (settled) return;
             settled = true;
 
-            // 大图转按钮，点击全屏
+            // 大图按钮，点击全屏
             if (img.naturalWidth > CFG.bigImgW || img.naturalHeight > CFG.bigImgH) {
                 const ph = buildBigImageButton(url, img.naturalWidth, img.naturalHeight);
                 if (wrap.parentNode) wrap.parentNode.replaceChild(ph, wrap);
             }
-            // 撑开后补贴底
             if (wasBottom) scrollLogToBottom();
         }, { once: true });
 
-        // 懒加载图进视口才开始计时
+        // 懒加载
         if ('IntersectionObserver' in window) {
             const io = new IntersectionObserver(function (entries) {
                 for (let i = 0; i < entries.length; i++) {
@@ -387,7 +387,6 @@
         targets.forEach(linkifyTextNode);
     }
     // 消息气泡
-    // 正文包成气泡，时间/名字/徽章留在行内；游戏会动态插拔这些标记，不搬动
     function bubbleLine(line) {
         if (line.hasAttribute('data-ce-bubbled')) return;
         if (line.classList.contains('chat-notice')) return;
@@ -404,7 +403,7 @@
         line.setAttribute('data-ce-bubbled', '');
     }
 
-    // 按钮挂进气泡，跟随正文
+    // 按钮跟随正文
     function actsHost(line) {
         return line.querySelector('.' + NS + '-bubble') || line;
     }
@@ -500,7 +499,6 @@
         actsHost(line).appendChild(btn);
     }
     // @ 提及按钮
-    // 发送框头部补 @名字，已 @ 过只挪光标
     function mentionCompose(name) {
         if (!name) return false;
         const input = pickCompose();
@@ -557,8 +555,7 @@
         });
         actsHost(line).appendChild(btn);
     }
-    // 回到底部 / 清空输入
-    // 按钮挂在不滚动的 .chat-body 上
+    // 回到底部
     function placeJump(host, btn) {
         const compose = host.querySelector('form.chat-compose');
         // 压在发送框上沿留 8px
@@ -624,7 +621,6 @@
     function placeClear(form, btn) {
         const send = form.querySelector('.chat-send');
         if (!send) { btn.style.right = '72px'; return; }
-        // 贴发送按钮左侧留 6px
         const gap = form.offsetWidth - send.offsetLeft + 6;
         btn.style.right = Math.max(24, gap) + 'px';
     }
@@ -680,7 +676,7 @@
         linkifyLine(line);
     }
 
-    // 按频道取尾部若干行；各频道混在一个日志里，只取整段尾部会让切过去的频道没按钮
+    // 按频道取尾部若干行
     function scanRecent(perRoom) {
         document.querySelectorAll('.chat-log, [data-log]').forEach(function (log) {
             const lines = log.querySelectorAll('.chat-line');
@@ -698,8 +694,7 @@
     let pending = new Set();
     let scheduled = false;
 
-    // 游戏用 24px 判定贴底，气泡化撑高后容易越过阈值；
-    // 处理前在底部，处理完立刻补回去
+    // 批量处理，避免频繁滚动
     function processBatch(batch) {
         const wasBottom = isLogAtBottom();
         batch.forEach(processLine);
@@ -744,7 +739,7 @@
                 if (m.type !== 'childList') continue;
                 const own = lineOf(m.target);
                 if (own) { schedule(own); continue; }
-                // 一次追加可能多条，全部收下一起处理，避免贴底补偿失准
+                // 多条消息逐个处理
                 for (let j = 0; j < m.addedNodes.length; j++) {
                     const ln = lineOf(m.addedNodes[j]);
                     if (ln) schedule(ln);
@@ -753,7 +748,6 @@
         });
         obs.observe(document.body, { childList: true, subtree: true });
 
-        // SPA 路由切换不重新注入：监听 popstate/hashchange，另有 href 比对兜底
         let lastHref = location.href;
         const checkRoute = function () {
             if (location.href === lastHref) return;
@@ -764,7 +758,7 @@
         window.addEventListener('popstate', checkRoute);
         window.addEventListener('hashchange', checkRoute);
 
-        // 翻译切换会整段重绘，低频补扫尾部并补挂按钮
+        // 翻译切换补齐
         setInterval(function () {
             checkRoute();
             const wasBottom = isLogAtBottom();
@@ -791,7 +785,7 @@
             '.' + NS + '-plus1:hover{opacity:1;background:rgba(140,140,140,.18);}',
             '.' + NS + '-plus1:active{transform:translateY(1px);}',
 
-            /* 气泡：徽章留在行内，正文单独成块 */
+            /* 气泡 */
             '.chat-line[data-ce-bubbled]{',
             '  display:block;padding:3px 0;',
             '}',
@@ -808,7 +802,7 @@
             '  background:rgba(110,165,255,.13);border-color:rgba(120,170,255,.18);',
             '}',
 
-            /* 翻译按钮由游戏插入，只调排版不拦事件 */
+            /* 原文按钮排版调整 */
             '.' + NS + '-bubble .chat-tr-flip{',
             '  margin:0 0 0 5px;padding:0 5px;font:inherit;font-size:10px;line-height:15px;',
             '  color:#a8c3e0;background:rgba(120,160,220,.12);',
@@ -825,7 +819,7 @@
             '  background:rgba(110,165,255,.13);border-color:rgba(120,170,255,.18);',
             '}',
 
-            /* 链接/大图按钮，点击先弹确认窗 */
+            /* 链接/大图按钮 */
             '.' + NS + '-lbtn{',
             '  display:inline-block;max-width:100%;margin:1px 2px 1px 0;',
             '  padding:2px 7px;font:inherit;font-size:11px;line-height:1.5;',
@@ -897,7 +891,7 @@
             '.' + NS + '-btn-ok{background:#3b6bd0;border-color:#4b82e6;color:#fff;}',
             '.' + NS + '-btn-ok:hover{background:#4a80e8;}',
 
-            /* @ 提及按钮：平时隐身，鼠标扫到这条消息才冒出来，避免整屏按钮 */
+            /* @ 提及按钮 */
             '.' + NS + '-mention{',
             '  margin:0 0 0 4px;padding:0 5px;font:inherit;font-size:10px;line-height:15px;',
             '  color:inherit;background:transparent;border:1px dashed rgba(140,140,140,.55);',
