@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         [DVI]聊天增强
 // @namespace    https://deepveinidle.com/
-// @version      1.2.5
-// @description  Deep Vein Idle 聊天栏增强：气泡排版、快捷复读、链接与图片安全预览
+// @version      1.2.7
+// @description  Deep Vein Idle 聊天栏增强：气泡排版、快捷复读、链接与图片安全预览。
 // @match        https://deepveinidle.com/*
 // @match        https://www.deepveinidle.com/*
 // @license      MIT
@@ -13,6 +13,7 @@
 (function () {
     'use strict';
 
+    // 重复注入守卫，避免 Observer 与定时器开两套
     if (window.__DVI_CHAT_PLUS__) {
         console.log('[dvi-ce] 聊天增强已在运行，跳过重复注入');
         return;
@@ -20,30 +21,30 @@
     window.__DVI_CHAT_PLUS__ = true;
 
 
-    const SCRIPT_VERSION = '1.2.5';
+    const SCRIPT_VERSION = '1.2.7';
 
     const NS = 'dvi-ce';
 
     const CFG = {
-        // 非图片链接按钮文字上限
+        // 链接按钮文字上限，超出中间省略
         maxLinkText: 48,
-        // 内联缩略图最大尺寸 (px)
+        // 缩略图最大尺寸
         maxImgW: 240,
         maxImgH: 150,
-        // 超大图阈值
+        // 超过此尺寸按大图处理，不放聊天里
         bigImgW: 900,
         bigImgH: 700,
-        // 出图超时 (ms)
+        // 出图超时则退回链接按钮
         imgTimeout: 6000,
-        // 草稿存在时追加
+        // 已有草稿时：追加还是覆盖
         appendWhenDraft: true,
-        // 兜底重扫间隔 (ms)
+        // 兜底重扫间隔，主要靠 MutationObserver
         rescanInterval: 8000,
     };
-    // 匹配图片后缀
+    // 小工具
     const IMG_EXT_RE = /\.(png|jpe?g|gif|gifv|webp|avif|bmp|svg)$/i;
 
-    // 默认按图片处理的域名
+    // 这些域名默认当图片处理
     const IMG_HOSTS = {
         'i.imgur.com': 1,
         'i.ibb.co': 1,
@@ -58,9 +59,9 @@
         'files.catbox.moe': 1,
     };
 
-    // 仅 ASCII 可见字符
+    // 只取 ASCII 可见字符，遇中文断开
     const URL_RE = /\bhttps?:\/\/[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+/g;
-    // 剥掉 URL 尾部标点
+    // 剥掉尾部标点
     const TRAIL_RE = /[)\],.;:!?'"]$/;
 
     function isImageUrl(u) {
@@ -83,7 +84,7 @@
             ? shown.slice(0, CFG.maxLinkText - 1) + '…'
             : shown;
     }
-    // 图片放大预览
+    // 全屏看图
     let viewerEl = null;
 
     function onViewerKey(ev) {
@@ -144,7 +145,7 @@
         document.removeEventListener('keydown', onConfirmKey, true);
     }
 
-    // 点链接不直接跳，先把完整地址亮在居中窗口里，确认了再打开
+    // 不直接跳转，先弹确认窗
     function confirmOpen(url) {
         closeConfirm();
 
@@ -216,13 +217,13 @@
         document.addEventListener('keydown', onConfirmKey, true);
         openBtn.focus();
     }
-    // 链接 → 节点
-    // 非图片链接渲染为按钮
+    // 链接转按钮
+    // 渲染成按钮而非 <a>，点击先确认
     function buildLinkButton(url) {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = NS + '-lbtn';
-        btn.setAttribute('data-url', url);      // +1 时还原完整地址
+        btn.setAttribute('data-url', url);      // 还原完整地址
         btn.setAttribute('data-no-i18n', '');
         btn.textContent = '↗ ' + shortText(url);
         btn.title = url;
@@ -234,7 +235,7 @@
         return btn;
     }
 
-    // 超大图：仅按钮
+    // 大图只给按钮
     function buildBigImageButton(url, w, h) {
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -262,7 +263,7 @@
         return log.offsetHeight + log.scrollTop + 30 > log.scrollHeight;
     }
 
-    /* 内联图片 */
+    /* 内联图片：小图直显，大图转按钮，失败退回链接 */
 
     function buildImageLink(url) {
         const wrap = document.createElement('span');
@@ -270,7 +271,7 @@
         wrap.setAttribute('data-url', url);
         wrap.setAttribute('data-no-i18n', '');
 
-        // 提前记录是否贴底
+        // 贴底状态要提前记
         const wasBottom = isLogAtBottom();
 
         const img = document.createElement('img');
@@ -296,16 +297,16 @@
             if (settled) return;
             settled = true;
 
-            // 超大图转按钮
+            // 大图转按钮，点击全屏
             if (img.naturalWidth > CFG.bigImgW || img.naturalHeight > CFG.bigImgH) {
                 const ph = buildBigImageButton(url, img.naturalWidth, img.naturalHeight);
                 if (wrap.parentNode) wrap.parentNode.replaceChild(ph, wrap);
             }
-            // 补贴底
+            // 撑开后补贴底
             if (wasBottom) scrollLogToBottom();
         }, { once: true });
 
-        // 进视口才计时
+        // 懒加载图进视口才开始计时
         if ('IntersectionObserver' in window) {
             const io = new IntersectionObserver(function (entries) {
                 for (let i = 0; i < entries.length; i++) {
@@ -324,7 +325,7 @@
         wrap.addEventListener('click', function (ev) {
             ev.preventDefault();
             ev.stopPropagation();
-            settled = true;                     // 用户主动查看
+            settled = true;                     // 用户主动查看，才取原图
             showViewer(url);
         });
         return wrap;
@@ -333,7 +334,7 @@
     function buildUrlNode(url) {
         return isImageUrl(url) ? buildImageLink(url) : buildLinkButton(url);
     }
-    // 提取 URL
+    // 从消息中提取 URL
     function linkifyTextNode(node) {
         const text = node.nodeValue || '';
         if (text.indexOf('http') < 0) return false;
@@ -370,11 +371,11 @@
 
     function linkifyLine(line) {
         const body = line.querySelector('.chat-text');
-        // 有正文处理正文，否则处理行
+        // 有正文处理正文，否则处理整行
         if (!body && !line.classList.contains('chat-notice')) return;
         const root = body || line;
 
-        // 仅替换文本节点
+        // 只替换文本节点，chip 与 @ 保持原样
         const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
         const targets = [];
         while (walker.nextNode()) {
@@ -386,6 +387,7 @@
         targets.forEach(linkifyTextNode);
     }
     // 消息气泡
+    // 正文包成气泡，时间/名字/徽章留在行内；游戏会动态插拔这些标记，不搬动
     function bubbleLine(line) {
         if (line.hasAttribute('data-ce-bubbled')) return;
         if (line.classList.contains('chat-notice')) return;
@@ -402,7 +404,7 @@
         line.setAttribute('data-ce-bubbled', '');
     }
 
-    // 按钮挂入气泡
+    // 按钮挂进气泡，跟随正文
     function actsHost(line) {
         return line.querySelector('.' + NS + '-bubble') || line;
     }
@@ -412,17 +414,17 @@
         if (!body) return '';
         const clone = body.cloneNode(true);
 
-        // 去掉翻译/报告按钮
+        // 剔除翻译与举报按钮，避免混进正文
         clone.querySelectorAll('.chat-tr-flip, .chat-tr-flag').forEach(function (n) {
             n.remove();
         });
 
-        // 还原链接/图片为 URL
+        // 还原原始 URL
         clone.querySelectorAll('.' + NS + '-img, .' + NS + '-lbtn').forEach(function (n) {
             n.replaceWith(n.getAttribute('data-url') || n.textContent || '');
         });
 
-        // 还原物品 chip
+        // chip 还原成 [名称 ×N]
         clone.querySelectorAll('.chat-item').forEach(function (chip) {
             try {
                 const nEl = chip.querySelector('.chat-item-n');
@@ -430,7 +432,7 @@
                 const name = chip.textContent.replace(nEl ? nEl.textContent : '', '').trim();
                 if (!name) return;
                 chip.replaceWith('[' + name + (qty ? ' ×' + qty : '') + ']');
-            } catch (e) { /* 失败保留原样 */ }
+            } catch (e) { /* 还原失败则保留原样 */ }
         });
 
         return (clone.textContent || '').replace(/\s+/g, ' ').trim();
@@ -462,7 +464,7 @@
         if (next.length > max) next = next.slice(0, max);
 
         input.value = next;
-        // 触发 input/change 事件
+        // 补 input 事件，同步依赖输入框的 UI
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.dispatchEvent(new Event('change', { bubbles: true }));
         input.focus();
@@ -498,7 +500,7 @@
         actsHost(line).appendChild(btn);
     }
     // @ 提及按钮
-    // 在发送框头部补「@名字 」，已 @ 过就只把光标挪回去，不重复堆
+    // 发送框头部补 @名字，已 @ 过只挪光标
     function mentionCompose(name) {
         if (!name) return false;
         const input = pickCompose();
@@ -531,7 +533,7 @@
     }
 
     function ensureMention(line) {
-        if (line.classList.contains('own')) return;         // 自己的消息
+        if (line.classList.contains('own')) return;         // 自己发的不 @ 自己
         if (line.classList.contains('chat-notice')) return;
         if (line.classList.contains('system')) return;
         if (!line.querySelector('.chat-text')) return;
@@ -556,10 +558,10 @@
         actsHost(line).appendChild(btn);
     }
     // 回到底部 / 清空输入
-    // 按钮挂到 .chat-body
+    // 按钮挂在不滚动的 .chat-body 上
     function placeJump(host, btn) {
         const compose = host.querySelector('form.chat-compose');
-        // 避免盖住输入区
+        // 压在发送框上沿留 8px
         const gap = compose
             ? Math.max(12, Math.round(host.getBoundingClientRect().bottom - compose.getBoundingClientRect().top) + 8)
             : 12;
@@ -574,7 +576,7 @@
     let jumpResizeWired = false;
 
     function ensureJumpButton() {
-        // 补齐被重绘带走的按钮/监听
+        // 补齐被重绘带走的按钮
         const log = document.querySelector('.chat-log');
         const host = log && log.parentElement;
         if (!log || !host) return;
@@ -622,7 +624,7 @@
     function placeClear(form, btn) {
         const send = form.querySelector('.chat-send');
         if (!send) { btn.style.right = '72px'; return; }
-        // 贴发送按钮左侧
+        // 贴发送按钮左侧留 6px
         const gap = form.offsetWidth - send.offsetLeft + 6;
         btn.style.right = Math.max(24, gap) + 'px';
     }
@@ -670,7 +672,7 @@
         ensureJumpButton();
         ensureClearButton();
     }
-    // 入口调度
+    // 启动
     function processLine(line) {
         bubbleLine(line);
         ensurePlusOne(line);
@@ -678,7 +680,7 @@
         linkifyLine(line);
     }
 
-    // 按频道取尾部若干行
+    // 按频道取尾部若干行；各频道混在一个日志里，只取整段尾部会让切过去的频道没按钮
     function scanRecent(perRoom) {
         document.querySelectorAll('.chat-log, [data-log]').forEach(function (log) {
             const lines = log.querySelectorAll('.chat-line');
@@ -696,7 +698,8 @@
     let pending = new Set();
     let scheduled = false;
 
-    // 处理前在底部则处理完补贴底
+    // 游戏用 24px 判定贴底，气泡化撑高后容易越过阈值；
+    // 处理前在底部，处理完立刻补回去
     function processBatch(batch) {
         const wasBottom = isLogAtBottom();
         batch.forEach(processLine);
@@ -741,7 +744,7 @@
                 if (m.type !== 'childList') continue;
                 const own = lineOf(m.target);
                 if (own) { schedule(own); continue; }
-                // 收集所有新增行一起处理
+                // 一次追加可能多条，全部收下一起处理，避免贴底补偿失准
                 for (let j = 0; j < m.addedNodes.length; j++) {
                     const ln = lineOf(m.addedNodes[j]);
                     if (ln) schedule(ln);
@@ -750,7 +753,7 @@
         });
         obs.observe(document.body, { childList: true, subtree: true });
 
-        // SPA 路由切换处理
+        // SPA 路由切换不重新注入：监听 popstate/hashchange，另有 href 比对兜底
         let lastHref = location.href;
         const checkRoute = function () {
             if (location.href === lastHref) return;
@@ -761,7 +764,7 @@
         window.addEventListener('popstate', checkRoute);
         window.addEventListener('hashchange', checkRoute);
 
-        // 兜底补扫 + HUD
+        // 翻译切换会整段重绘，低频补扫尾部并补挂按钮
         setInterval(function () {
             checkRoute();
             const wasBottom = isLogAtBottom();
@@ -788,7 +791,7 @@
             '.' + NS + '-plus1:hover{opacity:1;background:rgba(140,140,140,.18);}',
             '.' + NS + '-plus1:active{transform:translateY(1px);}',
 
-            /* 消息气泡 */
+            /* 气泡：徽章留在行内，正文单独成块 */
             '.chat-line[data-ce-bubbled]{',
             '  display:block;padding:3px 0;',
             '}',
@@ -805,7 +808,7 @@
             '  background:rgba(110,165,255,.13);border-color:rgba(120,170,255,.18);',
             '}',
 
-            /* 翻译按钮排版 */
+            /* 翻译按钮由游戏插入，只调排版不拦事件 */
             '.' + NS + '-bubble .chat-tr-flip{',
             '  margin:0 0 0 5px;padding:0 5px;font:inherit;font-size:10px;line-height:15px;',
             '  color:#a8c3e0;background:rgba(120,160,220,.12);',
@@ -822,7 +825,7 @@
             '  background:rgba(110,165,255,.13);border-color:rgba(120,170,255,.18);',
             '}',
 
-            /* 链接/大图按钮 */
+            /* 链接/大图按钮，点击先弹确认窗 */
             '.' + NS + '-lbtn{',
             '  display:inline-block;max-width:100%;margin:1px 2px 1px 0;',
             '  padding:2px 7px;font:inherit;font-size:11px;line-height:1.5;',
@@ -836,7 +839,7 @@
             '.' + NS + '-ibtn{color:#e2c68b;background:rgba(200,170,110,.10);border-color:rgba(200,170,110,.4);}',
             '.' + NS + '-ibtn:hover{background:rgba(200,170,110,.2);border-color:rgba(225,195,135,.7);}',
 
-            /* 图片：内联缩略图 */
+            /* 缩略图 */
             '.' + NS + '-img{',
             '  display:inline-block;vertical-align:middle;margin:3px 0;max-width:100%;',
             '  line-height:0;cursor:zoom-in;',
@@ -846,7 +849,7 @@
             '  border:1px solid rgba(140,140,140,.35);background:rgba(0,0,0,.15);',
             '}',
 
-            /* 大图预览层 */
+            /* 大图预览 */
             '.' + NS + '-viewer{',
             '  position:fixed;inset:0;z-index:2147483000;',
             '  display:flex;align-items:center;justify-content:center;',
@@ -861,7 +864,7 @@
             '  font-size:12px;color:rgba(255,255,255,.6);pointer-events:none;',
             '}',
 
-            /* 链接确认窗 */
+            /* 确认窗 */
             '.' + NS + '-confirm{',
             '  position:fixed;inset:0;z-index:2147483000;',
             '  display:flex;align-items:center;justify-content:center;',
@@ -894,7 +897,7 @@
             '.' + NS + '-btn-ok{background:#3b6bd0;border-color:#4b82e6;color:#fff;}',
             '.' + NS + '-btn-ok:hover{background:#4a80e8;}',
 
-            /* @ 提及按钮 */
+            /* @ 提及按钮：平时隐身，鼠标扫到这条消息才冒出来，避免整屏按钮 */
             '.' + NS + '-mention{',
             '  margin:0 0 0 4px;padding:0 5px;font:inherit;font-size:10px;line-height:15px;',
             '  color:inherit;background:transparent;border:1px dashed rgba(140,140,140,.55);',
@@ -917,7 +920,7 @@
             '}',
             '.' + NS + '-jump:hover{background:rgba(45,58,76,.95);transform:translateY(-1px);}',
 
-            /* 输入框清空 */
+            /* 清空输入 */
             '.' + NS + '-clear{',
             '  position:absolute;top:50%;transform:translateY(-50%);',
             '  width:18px;height:18px;padding:0;line-height:16px;',
@@ -927,7 +930,7 @@
             '}',
             '.' + NS + '-clear:hover{color:#fff;background:rgba(140,140,140,.25);}',
 
-            /* 通用隐藏 */
+            /* 通用隐藏，保留占位 */
             '.' + NS + '-hide{opacity:0;pointer-events:none;}',
         ].join('\n');
         (document.head || document.documentElement).appendChild(style);
