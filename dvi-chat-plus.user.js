@@ -889,7 +889,6 @@
             const onPaste = function (e) {
                 const cd = e.clipboardData;
                 if (!cd) return;
-                console.log('[' + NS + '] paste 事件，剪贴板类型:', Array.prototype.map.call(cd.items || [], function (it) { return it.type; }).join(','));
                 let file = null;
                 const items = cd.items;
                 if (items) {
@@ -955,7 +954,6 @@
     function toggleEmojiPanel(show) {
         ensureEmojiPanel();
         emojiPanel.classList.toggle(NS + '-emoji-show', !!show);
-        console.log('[' + NS + '] 表情面板', !!show);
         if (show) positionEmojiPanel();
     }
 
