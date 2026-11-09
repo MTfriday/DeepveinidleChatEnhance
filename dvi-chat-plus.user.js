@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [DVI]聊天增强
 // @namespace    https://deepveinidle.com/
-// @version      1.2.11
+// @version      1.2.12
 // @description  Deep Vein Idle 聊天栏增强：气泡排版、快捷复读、链接与图片安全预览。
 // @author       MT_
 // @match        https://deepveinidle.com/*
@@ -28,7 +28,7 @@
     window.__DVI_CHAT_PLUS__ = true;
 
 
-    const SCRIPT_VERSION = '1.2.11';
+    const SCRIPT_VERSION = '1.2.12';
 
     const NS = 'dvi-ce';
 
@@ -45,8 +45,6 @@
         imgTimeout: 6000,
         // 已有草稿时：追加还是覆盖
         appendWhenDraft: true,
-        // 复读别人消息时把 @ 转义，避免发送后误提到别人
-        escapeAtMentions: true,
         // 重扫聊天间隔
         rescanInterval: 8000,
     };
@@ -447,10 +445,9 @@
         return (clone.textContent || '').replace(/\s+/g, ' ').trim();
     }
 
-    // 把正文里的 @ 断开成「@ + 零宽空格」，游戏就不会把它认成提及
-    function escapeAtMentions(text) {
-        if (!CFG.escapeAtMentions || !text) return text;
-        return text.replace(/(^|[\s(（\[【])@(?=[^\s])/g, '$1@\u200B');
+    // 链接里的 @ 会被游戏当成提及解析，转成等价的 %40 再填进输入框
+    function encodeAtInUrl(url) {
+        return String(url || '').replace(/@/g, '%40');
     }
 
     function pickCompose() {
@@ -504,7 +501,7 @@
         btn.addEventListener('click', function (ev) {
             ev.preventDefault();
             ev.stopPropagation();
-            const ok = fillCompose(escapeAtMentions(getLineText(line)));
+            const ok = fillCompose(getLineText(line));
             btn.textContent = ok ? '✓' : '✗';
             btn.title = ok ? '已放进输入框' : '找不到可用的输入框（游客在非新手频道不能发言）';
             setTimeout(function () {
@@ -763,7 +760,7 @@
             const finish = function (text) {
                 const url = ep.parse(text);
                 if (/^https?:\/\//.test(url || '')) {
-                    fillCompose(String(url).trim());
+                    fillCompose(encodeAtInUrl(String(url).trim()));
                     showUploadStatus('上传成功', true);
                 } else {
                     failed.push(host + ':返回内容非链接');
@@ -929,7 +926,7 @@
             item.className = NS + '-emoji-item';
             item.title = pair[0];
             const img = document.createElement('img');
-            img.src = 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/' + pair[1] + '.png';
+            img.src = 'https://cdn.jsdelivr.net/gh/jdecked/twemoji/assets/72x72/' + pair[1] + '.png';
             img.alt = pair[0];
             img.addEventListener('error', function () {
                 // CDN 不可用时退回字符表情，至少保证面板可用
@@ -940,7 +937,7 @@
             item.addEventListener('click', function (ev) {
                 ev.preventDefault();
                 ev.stopPropagation();
-                fillCompose(img.src);
+                fillCompose(encodeAtInUrl(img.src));
                 toggleEmojiPanel(false);
             });
             grid.appendChild(item);
