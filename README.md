@@ -2,7 +2,7 @@
 
 A Tampermonkey / Violentmonkey / ScriptCat userscript for Deep Vein Idle chat.
 
-The script is `dvi-chat-plus.user.js`, running on `https://deepveinidle.com/`. It only reads the page DOM, uses `@grant none`, makes no external requests, and does not touch accounts or saves.
+The script is `dvi-chat-plus.user.js`, running on `https://deepveinidle.com/`. It reads the page DOM, uses `GM_xmlhttpRequest` only for image uploads, and does not touch accounts or saves.
 
 ## Features
 
@@ -11,6 +11,8 @@ The script is `dvi-chat-plus.user.js`, running on `https://deepveinidle.com/`. I
 - `@` button to mention a user
 - Links rendered as buttons with a confirmation dialog
 - Inline small images; large images become buttons with fullscreen preview
+- Image upload via paste or the 📎 button, trying catbox / litterbox / uguu in order
+- Emoji picker inserts sticker images
 - Scroll-to-bottom button
 - One-click input clear
 - Supports the game's auto-translation UI
@@ -18,7 +20,7 @@ The script is `dvi-chat-plus.user.js`, running on `https://deepveinidle.com/`. I
 ## Install
 
 1. Install Tampermonkey / Violentmonkey / ScriptCat
-2. Create a new script and paste the full `dvi-chat-plus.user.js` / download from greasyfork.org
+2. Download from greasyfork.org / import the source file directly from the repository
 3. Open the game page; bubbles and `+1` should appear
 
 ## Development
@@ -50,3 +52,5 @@ npm run bump -- major                # bump major version
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+Icon: speech balloon from [Twemoji](https://github.com/twitter/twemoji), licensed CC-BY 4.0.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [DVI]聊天增强
 // @namespace    https://deepveinidle.com/
-// @version      1.2.8
+// @version      1.2.9
 // @description  Deep Vein Idle 聊天栏增强：气泡排版、快捷复读、链接与图片安全预览。
 // @author       MT_
 // @match        https://deepveinidle.com/*
@@ -9,9 +9,14 @@
 // @match        https://www.deepveinidle.com/*
 // @license      MIT
 // @run-at       document-idle
-// @grant        none
-// @icon         https://deepveinidle.com/favicon.ico
+// @grant        GM_xmlhttpRequest
+// @connect      catbox.moe
+// @connect      files.catbox.moe
+// @connect      litterbox.catbox.moe
+// @connect      uguu.se
+// @icon         https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f4ac.png
 // ==/UserScript==
+// Icon by Twitter/Twemoji, licensed CC-BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
 
 (function () {
     'use strict';
@@ -23,7 +28,7 @@
     window.__DVI_CHAT_PLUS__ = true;
 
 
-    const SCRIPT_VERSION = '1.2.8';
+    const SCRIPT_VERSION = '1.2.9';
 
     const NS = 'dvi-ce';
 
@@ -60,6 +65,9 @@
         'i.pinimg.com': 1,
         'i.pximg.net': 1,
         'files.catbox.moe': 1,
+        'litter.catbox.moe': 1,
+        'n.uguu.se': 1,
+        'h.uguu.se': 1,
     };
 
     // 只取 ASCII 可见字符
@@ -265,7 +273,7 @@
         return log.offsetHeight + log.scrollTop + 30 > log.scrollHeight;
     }
 
-    /* 内联图片：小图直显，大图转按钮，失败返回链接模式 */
+    /* 内联图片 */
 
     function buildImageLink(url) {
         const wrap = document.createElement('span');
@@ -664,13 +672,300 @@
         btn.classList.toggle(NS + '-hide', !input.value);
     }
 
+    function clearRightPx(form) {
+        const send = form.querySelector('.chat-send');
+        const gap = send ? form.offsetWidth - send.offsetLeft + 6 : 24;
+        return Math.max(24, gap);
+    }
+
+    const EMOJI_LIST = [
+        ['😀', '1f600'], ['😂', '1f602'], ['😍', '1f60d'], ['🤔', '1f914'],
+        ['👍', '1f44d'], ['👎', '1f44e'], ['🔥', '1f525'], ['😭', '1f62d'],
+        ['😎', '1f60e'], ['🎉', '1f389'], ['🙏', '1f64f'], ['💖', '1f496'],
+    ];
+
+    let emojiPanel = null;
+    let uploadInput = null;
+
+    function showUploadStatus(msg, ok) {
+        let el = document.querySelector('.' + NS + '-upload-status');
+        if (!el) {
+            el = document.createElement('div');
+            el.className = NS + '-upload-status';
+            document.body.appendChild(el);
+        }
+        el.textContent = msg;
+        el.classList.toggle(NS + '-upload-error', !ok);
+        if (el._t) clearTimeout(el._t);
+        el._t = setTimeout(function () { el.remove(); }, 3000);
+    }
+
+    const UPLOAD_ENDPOINTS = [
+        {
+            url: 'https://catbox.moe/user/api.php',
+            append: function (fd, file) {
+                fd.append('reqtype', 'fileupload');
+                fd.append('fileToUpload', file, file.name || 'image.png');
+            },
+            parse: function (text) { return (text || '').trim(); },
+        },
+        {
+            url: 'https://litterbox.catbox.moe/resources/internals/api.php',
+            append: function (fd, file) {
+                fd.append('reqtype', 'fileupload');
+                fd.append('time', '12h');
+                fd.append('fileToUpload', file, file.name || 'image.png');
+            },
+            parse: function (text) { return (text || '').trim(); },
+        },
+        {
+            url: 'https://uguu.se/upload',
+            append: function (fd, file) {
+                fd.append('files[]', file, file.name || 'image.png');
+            },
+            parse: function (text) {
+                try {
+                    const j = JSON.parse(text || '');
+                    return j && j.files && j.files[0] ? (j.files[0].url || '') : '';
+                } catch (e) {
+                    return '';
+                }
+            },
+        },
+    ];
+
+    function uploadImageFile(file) {
+        if (!file || !/^image\//.test(file.type || '')) return;
+        showUploadStatus('上传中…', true);
+
+        let index = 0;
+        const failed = [];
+        const attempt = function () {
+            if (index >= UPLOAD_ENDPOINTS.length) {
+                showUploadStatus('上传失败', false);
+                if (failed.length) console.warn('[' + NS + '] 图床依次失败：' + failed.join(' | '));
+                return;
+            }
+            const ep = UPLOAD_ENDPOINTS[index++];
+            const host = ep.url.replace(/^https?:\/\//, '').split('/')[0];
+            const fd = new FormData();
+            ep.append(fd, file);
+
+            const finish = function (text) {
+                const url = ep.parse(text);
+                if (/^https?:\/\//.test(url || '')) {
+                    fillCompose(String(url).trim());
+                    showUploadStatus('上传成功', true);
+                } else {
+                    failed.push(host + ':返回内容非链接');
+                    attempt();
+                }
+            };
+
+            if (typeof GM_xmlhttpRequest === 'function') {
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: ep.url,
+                    data: fd,
+                    timeout: 12000,
+                    onload: function (res) {
+                        if (res.status < 200 || res.status >= 300) {
+                            failed.push(host + ':HTTP ' + res.status);
+                            attempt();
+                            return;
+                        }
+                        finish(res.responseText || '');
+                    },
+                    onerror: function (e) {
+                        failed.push(host + ':' + ((e && e.error) || '网络错误'));
+                        attempt();
+                    },
+                    ontimeout: function () {
+                        failed.push(host + ':超时');
+                        attempt();
+                    },
+                });
+            } else {
+                fetch(ep.url, { method: 'POST', body: fd })
+                    .then(function (r) {
+                        if (!r.ok) {
+                            failed.push(host + ':HTTP ' + r.status);
+                            attempt();
+                            return '';
+                        }
+                        return r.text();
+                    })
+                    .then(function (text) { if (text) finish(text); })
+                    .catch(function (e) {
+                        failed.push(host + ':' + ((e && e.message) || '网络错误'));
+                        attempt();
+                    });
+            }
+        };
+        attempt();
+    }
+
+    function ensureUploadInput() {
+        if (uploadInput && document.body.contains(uploadInput)) return uploadInput;
+        uploadInput = document.createElement('input');
+        uploadInput.type = 'file';
+        uploadInput.accept = 'image/*';
+        uploadInput.style.display = 'none';
+        uploadInput.addEventListener('change', function () {
+            if (uploadInput.files && uploadInput.files[0]) uploadImageFile(uploadInput.files[0]);
+            uploadInput.value = '';
+        });
+        document.body.appendChild(uploadInput);
+        return uploadInput;
+    }
+
+    function ensureUploadButton() {
+        const form = document.querySelector('form.chat-compose');
+        const input = form && form.querySelector('input.chat-input[data-input]');
+        if (!form || !input) return;
+        if (getComputedStyle(form).position === 'static') form.style.position = 'relative';
+
+        let btn = form.querySelector('.' + NS + '-upload');
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = NS + '-upload';
+            btn.textContent = '📎';
+            btn.title = '上传图片';
+            btn.setAttribute('data-no-i18n', '');
+            btn.addEventListener('click', function (ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                ensureUploadInput().click();
+            });
+            form.appendChild(btn);
+        }
+        btn.style.right = (clearRightPx(form) + 22) + 'px';
+
+        if (!input.hasAttribute('data-ce-upload')) {
+            input.setAttribute('data-ce-upload', '');
+            input.addEventListener('paste', function (e) {
+                const items = e.clipboardData && e.clipboardData.items;
+                if (!items) return;
+                for (let i = 0; i < items.length; i++) {
+                    if (items[i].type && items[i].type.indexOf('image/') === 0) {
+                        const file = items[i].getAsFile();
+                        if (file) {
+                            uploadImageFile(file);
+                            e.preventDefault();
+                        }
+                        break;
+                    }
+                }
+            });
+        }
+    }
+
+    function ensureEmojiPanel() {
+        if (emojiPanel && document.body.contains(emojiPanel)) return emojiPanel;
+        const panel = document.createElement('div');
+        panel.className = NS + '-emoji-panel';
+        const grid = document.createElement('div');
+        grid.className = NS + '-emoji-grid';
+        EMOJI_LIST.forEach(function (pair) {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = NS + '-emoji-item';
+            item.title = pair[0];
+            const img = document.createElement('img');
+            img.src = 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/' + pair[1] + '.png';
+            img.alt = pair[0];
+            item.appendChild(img);
+            item.addEventListener('click', function (ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                fillCompose(img.src);
+                toggleEmojiPanel(false);
+            });
+            grid.appendChild(item);
+        });
+        panel.appendChild(grid);
+        document.body.appendChild(panel);
+        emojiPanel = panel;
+        return panel;
+    }
+
+    function toggleEmojiPanel(show) {
+        ensureEmojiPanel();
+        emojiPanel.classList.toggle(NS + '-emoji-show', !!show);
+        if (show) positionEmojiPanel();
+    }
+
+    function positionEmojiPanel() {
+        if (!emojiPanel) return;
+        const btn = document.querySelector('.' + NS + '-emoji');
+        if (!btn) return;
+        const r = btn.getBoundingClientRect();
+        const w = emojiPanel.offsetWidth || 240;
+        let left = r.right - w;
+        if (left < 8) left = 8;
+        let top = r.top - (emojiPanel.offsetHeight || 220) - 8;
+        if (top < 8) top = r.bottom + 8;
+        emojiPanel.style.left = left + 'px';
+        emojiPanel.style.top = top + 'px';
+    }
+
+    function ensureEmojiButton() {
+        const form = document.querySelector('form.chat-compose');
+        const input = form && form.querySelector('input.chat-input[data-input]');
+        if (!form || !input) return;
+        if (getComputedStyle(form).position === 'static') form.style.position = 'relative';
+
+        let btn = form.querySelector('.' + NS + '-emoji');
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = NS + '-emoji';
+            btn.textContent = '😀';
+            btn.title = '表情';
+            btn.setAttribute('data-no-i18n', '');
+            btn.addEventListener('click', function (ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                const show = !(emojiPanel && emojiPanel.classList.contains(NS + '-emoji-show'));
+                toggleEmojiPanel(show);
+            });
+            form.appendChild(btn);
+        }
+        btn.style.right = (clearRightPx(form) + 44) + 'px';
+        ensureEmojiPanel();
+
+        if (!document.body.hasAttribute('data-ce-emoji-close')) {
+            document.body.setAttribute('data-ce-emoji-close', '');
+            document.addEventListener('click', function (e) {
+                if (!emojiPanel || !emojiPanel.classList.contains(NS + '-emoji-show')) return;
+                if (e.target.closest && (e.target.closest('.' + NS + '-emoji') || e.target.closest('.' + NS + '-emoji-panel'))) return;
+                toggleEmojiPanel(false);
+            }, true);
+        }
+    }
+
     function ensureHud() {
         ensureJumpButton();
         ensureClearButton();
+        ensureUploadButton();
+        ensureEmojiButton();
     }
-    // 启动
+    // 翻译按钮搬到气泡外，紧跟气泡
+    function moveTranslationButtons(line) {
+        const bubble = line.querySelector('.' + NS + '-bubble');
+        if (!bubble) return;
+        const buttons = bubble.querySelectorAll('.chat-tr-flip, .chat-tr-flag');
+        for (let i = buttons.length - 1; i >= 0; i--) {
+            const btn = buttons[i];
+            if (btn.parentNode === line) continue;
+            line.insertBefore(btn, bubble.nextSibling);
+        }
+    }
+
     function processLine(line) {
         bubbleLine(line);
+        moveTranslationButtons(line);
         ensurePlusOne(line);
         ensureMention(line);
         linkifyLine(line);
@@ -726,6 +1021,7 @@
         return el.closest('.chat-line');
     }
 
+    // 启动
     function start() {
         injectStyle();
         const wasBottom = isLogAtBottom();
@@ -803,15 +1099,15 @@
             '}',
 
             /* 原文按钮排版调整 */
-            '.' + NS + '-bubble .chat-tr-flip{',
+            '.chat-line .chat-tr-flip{',
             '  margin:0 0 0 5px;padding:0 5px;font:inherit;font-size:10px;line-height:15px;',
             '  color:#a8c3e0;background:rgba(120,160,220,.12);',
             '  border:1px solid rgba(120,160,220,.32);border-radius:4px;',
             '  cursor:pointer;vertical-align:baseline;white-space:nowrap;',
             '  transition:background .12s,color .12s;',
             '}',
-            '.' + NS + '-bubble .chat-tr-flip:hover{color:#dbeaff;background:rgba(120,160,220,.26);}',
-            '.' + NS + '-bubble .chat-tr-flag{',
+            '.chat-line .chat-tr-flip:hover{color:#dbeaff;background:rgba(120,160,220,.26);}',
+            '.chat-line .chat-tr-flag{',
             '  margin-left:2px;padding:0 4px;color:#e2c68b;',
             '  background:rgba(200,170,110,.10);border-color:rgba(200,170,110,.4);',
             '}',
@@ -923,6 +1219,38 @@
             '  border:none;border-radius:9px;cursor:pointer;transition:opacity .12s,background .12s;',
             '}',
             '.' + NS + '-clear:hover{color:#fff;background:rgba(140,140,140,.25);}',
+
+            /* 上传/表情按钮 */
+            '.' + NS + '-upload, .' + NS + '-emoji{',
+            '  position:absolute;top:50%;transform:translateY(-50%);',
+            '  width:18px;height:18px;padding:0;line-height:16px;',
+            '  font-size:13px;text-align:center;',
+            '  color:rgba(200,210,225,.7);background:transparent;',
+            '  border:none;border-radius:9px;cursor:pointer;transition:opacity .12s,background .12s;',
+            '}',
+            '.' + NS + '-upload:hover, .' + NS + '-emoji:hover{color:#fff;background:rgba(140,140,140,.25);}',
+            /* 上传状态 */
+            '.' + NS + '-upload-status{',
+            '  position:fixed;right:16px;bottom:16px;z-index:2147483000;',
+            '  padding:8px 12px;border-radius:6px;font-size:12px;color:#fff;',
+            '  background:rgba(40,120,60,.92);box-shadow:0 4px 16px rgba(0,0,0,.35);',
+            '}',
+            '.' + NS + '-upload-status.' + NS + '-upload-error{background:rgba(160,40,40,.92);}',
+            /* 表情面板 */
+            '.' + NS + '-emoji-panel{',
+            '  position:fixed;z-index:2147483000;display:none;',
+            '  width:240px;max-height:220px;overflow:auto;padding:6px;',
+            '  background:#1b222c;border:1px solid rgba(140,160,190,.3);border-radius:8px;',
+            '  box-shadow:0 8px 30px rgba(0,0,0,.45);',
+            '}',
+            '.' + NS + '-emoji-panel.' + NS + '-emoji-show{display:block;}',
+            '.' + NS + '-emoji-grid{display:flex;flex-wrap:wrap;gap:4px;}',
+            '.' + NS + '-emoji-item{',
+            '  width:32px;height:32px;padding:2px;border:none;border-radius:4px;',
+            '  background:transparent;cursor:pointer;',
+            '}',
+            '.' + NS + '-emoji-item:hover{background:rgba(140,140,140,.25);}',
+            '.' + NS + '-emoji-item img{width:100%;height:100%;object-fit:contain;}',
 
             /* 通用隐藏，保留占位 */
             '.' + NS + '-hide{opacity:0;pointer-events:none;}',
