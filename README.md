@@ -20,7 +20,7 @@ Deep Vein Idle 聊天栏的 Tampermonkey / Violentmonkey / ScriptCat 用户脚�
 ## 安装
 
 1. 安装 Tampermonkey / Violentmonkey / ScriptCat 之一
-2. greasyfork.org搜索[DVI] 聊天增强下载 / 新建脚本，粘贴 `dvi-chat-plus.user.js` 全文并保存
+2. greasyfork.org搜索 [DVI] 聊天增强 下载 / 新建脚本，粘贴 `dvi-chat-plus.user.js` 全文并保存
 3. 打开游戏页面，聊天栏出现圆角气泡与 `+1` 即生效
 
 ## 开发
