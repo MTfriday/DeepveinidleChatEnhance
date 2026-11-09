@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [DVI]聊天增强
 // @namespace    https://deepveinidle.com/
-// @version      1.2.9
+// @version      1.2.10
 // @description  Deep Vein Idle 聊天栏增强：气泡排版、快捷复读、链接与图片安全预览。
 // @author       MT_
 // @match        https://deepveinidle.com/*
@@ -28,7 +28,7 @@
     window.__DVI_CHAT_PLUS__ = true;
 
 
-    const SCRIPT_VERSION = '1.2.9';
+    const SCRIPT_VERSION = '1.2.10';
 
     const NS = 'dvi-ce';
 
@@ -736,6 +736,7 @@
 
     function uploadImageFile(file) {
         if (!file || !/^image\//.test(file.type || '')) return;
+        console.log('[' + NS + '] 开始上传图片', file.type, file.size + 'B');
         showUploadStatus('上传中…', true);
 
         let index = 0;
@@ -767,7 +768,7 @@
                     method: 'POST',
                     url: ep.url,
                     data: fd,
-                    timeout: 12000,
+                    timeout: 8000,
                     onload: function (res) {
                         if (res.status < 200 || res.status >= 300) {
                             failed.push(host + ':HTTP ' + res.status);
@@ -836,6 +837,7 @@
             btn.addEventListener('click', function (ev) {
                 ev.preventDefault();
                 ev.stopPropagation();
+                console.log('[' + NS + '] 打开文件选择');
                 ensureUploadInput().click();
             });
             form.appendChild(btn);
@@ -844,20 +846,35 @@
 
         if (!input.hasAttribute('data-ce-upload')) {
             input.setAttribute('data-ce-upload', '');
-            input.addEventListener('paste', function (e) {
-                const items = e.clipboardData && e.clipboardData.items;
-                if (!items) return;
-                for (let i = 0; i < items.length; i++) {
-                    if (items[i].type && items[i].type.indexOf('image/') === 0) {
-                        const file = items[i].getAsFile();
-                        if (file) {
-                            uploadImageFile(file);
-                            e.preventDefault();
+            const onPaste = function (e) {
+                const cd = e.clipboardData;
+                if (!cd) return;
+                console.log('[' + NS + '] paste 事件，剪贴板类型:', Array.prototype.map.call(cd.items || [], function (it) { return it.type; }).join(','));
+                let file = null;
+                const items = cd.items;
+                if (items) {
+                    for (let i = 0; i < items.length; i++) {
+                        if (items[i].type && items[i].type.indexOf('image/') === 0) {
+                            file = items[i].getAsFile();
+                            if (file) break;
                         }
-                        break;
                     }
                 }
-            });
+                if (!file && cd.files) {
+                    for (let i = 0; i < cd.files.length; i++) {
+                        if (cd.files[i].type && cd.files[i].type.indexOf('image/') === 0) {
+                            file = cd.files[i];
+                            break;
+                        }
+                    }
+                }
+                if (!file) return;
+                e.preventDefault();
+                e.stopPropagation();
+                uploadImageFile(file);
+            };
+            // 捕获阶段监听，避免被游戏自己的 paste 处理抢先拦截
+            input.addEventListener('paste', onPaste, true);
         }
     }
 
@@ -875,6 +892,11 @@
             const img = document.createElement('img');
             img.src = 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/' + pair[1] + '.png';
             img.alt = pair[0];
+            img.addEventListener('error', function () {
+                // CDN 不可用时退回字符表情，至少保证面板可用
+                item.textContent = pair[0];
+                item.style.fontSize = '18px';
+            });
             item.appendChild(img);
             item.addEventListener('click', function (ev) {
                 ev.preventDefault();
@@ -893,6 +915,7 @@
     function toggleEmojiPanel(show) {
         ensureEmojiPanel();
         emojiPanel.classList.toggle(NS + '-emoji-show', !!show);
+        console.log('[' + NS + '] 表情面板', !!show);
         if (show) positionEmojiPanel();
     }
 
@@ -902,10 +925,15 @@
         if (!btn) return;
         const r = btn.getBoundingClientRect();
         const w = emojiPanel.offsetWidth || 240;
+        const h = emojiPanel.offsetHeight || 220;
+        const vw = window.innerWidth || document.documentElement.clientWidth;
+        const vh = window.innerHeight || document.documentElement.clientHeight;
         let left = r.right - w;
+        if (left + w > vw - 8) left = vw - w - 8;
         if (left < 8) left = 8;
-        let top = r.top - (emojiPanel.offsetHeight || 220) - 8;
+        let top = r.top - h - 8;
         if (top < 8) top = r.bottom + 8;
+        if (top + h > vh - 8) top = Math.max(8, vh - h - 8);
         emojiPanel.style.left = left + 'px';
         emojiPanel.style.top = top + 'px';
     }
@@ -951,12 +979,21 @@
         ensureUploadButton();
         ensureEmojiButton();
     }
-    // 翻译按钮搬到气泡外，紧跟气泡
+    // 翻译按钮搬到气泡外，紧跟气泡；先清掉上一轮遗留的同名按钮，避免越点越多
     function moveTranslationButtons(line) {
         const bubble = line.querySelector('.' + NS + '-bubble');
         if (!bubble) return;
-        const buttons = bubble.querySelectorAll('.chat-tr-flip, .chat-tr-flag');
-        for (let i = buttons.length - 1; i >= 0; i--) {
+        const buttons = Array.from(bubble.querySelectorAll('.chat-tr-flip, .chat-tr-flag'));
+        if (!buttons.length) return;
+        for (let i = 0; i < line.children.length; i++) {
+            const child = line.children[i];
+            if (child === bubble) continue;
+            if (child.classList && (child.classList.contains('chat-tr-flip') || child.classList.contains('chat-tr-flag')) && buttons.indexOf(child) === -1) {
+                line.removeChild(child);
+                i--;
+            }
+        }
+        for (let i = 0; i < buttons.length; i++) {
             const btn = buttons[i];
             if (btn.parentNode === line) continue;
             line.insertBefore(btn, bubble.nextSibling);
@@ -1028,6 +1065,30 @@
         scanRecent(9999);   // 首次全量扫描
         if (wasBottom) scrollLogToBottom();   // 补贴底
         ensureHud();
+
+        // 捕获阶段兜底：即使游戏在冒泡阶段拦了点击，📎 / 😀 也能响应
+        if (!document.body.hasAttribute('data-ce-actions')) {
+            document.body.setAttribute('data-ce-actions', '');
+            document.addEventListener('click', function (e) {
+                const t = e.target;
+                if (!t || !t.closest) return;
+                const emojiBtn = t.closest('.' + NS + '-emoji');
+                if (emojiBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const show = !(emojiPanel && emojiPanel.classList.contains(NS + '-emoji-show'));
+                    toggleEmojiPanel(show);
+                    return;
+                }
+                const uploadBtn = t.closest('.' + NS + '-upload');
+                if (uploadBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('[' + NS + '] 打开文件选择');
+                    ensureUploadInput().click();
+                }
+            }, true);
+        }
 
         const obs = new MutationObserver(function (muts) {
             for (let i = 0; i < muts.length; i++) {
