@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [DVI]聊天增强
 // @namespace    https://deepveinidle.com/
-// @version      1.2.10
+// @version      1.2.11
 // @description  Deep Vein Idle 聊天栏增强：气泡排版、快捷复读、链接与图片安全预览。
 // @author       MT_
 // @match        https://deepveinidle.com/*
@@ -28,7 +28,7 @@
     window.__DVI_CHAT_PLUS__ = true;
 
 
-    const SCRIPT_VERSION = '1.2.10';
+    const SCRIPT_VERSION = '1.2.11';
 
     const NS = 'dvi-ce';
 
@@ -45,6 +45,8 @@
         imgTimeout: 6000,
         // 已有草稿时：追加还是覆盖
         appendWhenDraft: true,
+        // 复读别人消息时把 @ 转义，避免发送后误提到别人
+        escapeAtMentions: true,
         // 重扫聊天间隔
         rescanInterval: 8000,
     };
@@ -445,6 +447,12 @@
         return (clone.textContent || '').replace(/\s+/g, ' ').trim();
     }
 
+    // 把正文里的 @ 断开成「@ + 零宽空格」，游戏就不会把它认成提及
+    function escapeAtMentions(text) {
+        if (!CFG.escapeAtMentions || !text) return text;
+        return text.replace(/(^|[\s(（\[【])@(?=[^\s])/g, '$1@\u200B');
+    }
+
     function pickCompose() {
         const main = document.querySelector('input.chat-input[data-input]');
         if (main) return main;
@@ -496,7 +504,7 @@
         btn.addEventListener('click', function (ev) {
             ev.preventDefault();
             ev.stopPropagation();
-            const ok = fillCompose(getLineText(line));
+            const ok = fillCompose(escapeAtMentions(getLineText(line)));
             btn.textContent = ok ? '✓' : '✗';
             btn.title = ok ? '已放进输入框' : '找不到可用的输入框（游客在非新手频道不能发言）';
             setTimeout(function () {
@@ -820,6 +828,40 @@
         return uploadInput;
     }
 
+    // 按下即触发：不依赖 click，避免游戏在鼠标抬起前改变布局导致 click 落空
+    function pressAction(el, fn) {
+        let last = 0;
+        const run = function (ev) {
+            if (ev.button !== undefined && ev.button !== 0) return;
+            const now = Date.now();
+            if (now - last < 250) return;   // 同一次按下只响应一次
+            last = now;
+            ev.preventDefault();
+            ev.stopPropagation();
+            fn();
+        };
+        el.addEventListener('pointerdown', run, true);
+        el.addEventListener('mousedown', run, true);
+        // 兜住键盘与无障碍触发，但不重复执行
+        el.addEventListener('click', function (ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (Date.now() - last < 250) return;
+            last = Date.now();
+            fn();
+        }, true);
+    }
+
+    // 按输入框实际位置摆按钮：锚定输入框而非表单中线，表单高度变化时不会上下漂
+    function placeComposeButton(btn, form, input, rightPx) {
+        const fr = form.getBoundingClientRect();
+        const ir = input.getBoundingClientRect();
+        if (!fr.height || !ir.height) return;
+        const size = btn.offsetHeight || 18;
+        btn.style.right = rightPx + 'px';
+        btn.style.top = (ir.top - fr.top + (ir.height - size) / 2) + 'px';
+    }
+
     function ensureUploadButton() {
         const form = document.querySelector('form.chat-compose');
         const input = form && form.querySelector('input.chat-input[data-input]');
@@ -834,15 +876,13 @@
             btn.textContent = '📎';
             btn.title = '上传图片';
             btn.setAttribute('data-no-i18n', '');
-            btn.addEventListener('click', function (ev) {
-                ev.preventDefault();
-                ev.stopPropagation();
+            pressAction(btn, function () {
                 console.log('[' + NS + '] 打开文件选择');
                 ensureUploadInput().click();
             });
             form.appendChild(btn);
         }
-        btn.style.right = (clearRightPx(form) + 22) + 'px';
+        placeComposeButton(btn, form, input, clearRightPx(form) + 22);
 
         if (!input.hasAttribute('data-ce-upload')) {
             input.setAttribute('data-ce-upload', '');
@@ -952,15 +992,13 @@
             btn.textContent = '😀';
             btn.title = '表情';
             btn.setAttribute('data-no-i18n', '');
-            btn.addEventListener('click', function (ev) {
-                ev.preventDefault();
-                ev.stopPropagation();
+            pressAction(btn, function () {
                 const show = !(emojiPanel && emojiPanel.classList.contains(NS + '-emoji-show'));
                 toggleEmojiPanel(show);
             });
             form.appendChild(btn);
         }
-        btn.style.right = (clearRightPx(form) + 44) + 'px';
+        placeComposeButton(btn, form, input, clearRightPx(form) + 44);
         ensureEmojiPanel();
 
         if (!document.body.hasAttribute('data-ce-emoji-close')) {
@@ -1065,30 +1103,6 @@
         scanRecent(9999);   // 首次全量扫描
         if (wasBottom) scrollLogToBottom();   // 补贴底
         ensureHud();
-
-        // 捕获阶段兜底：即使游戏在冒泡阶段拦了点击，📎 / 😀 也能响应
-        if (!document.body.hasAttribute('data-ce-actions')) {
-            document.body.setAttribute('data-ce-actions', '');
-            document.addEventListener('click', function (e) {
-                const t = e.target;
-                if (!t || !t.closest) return;
-                const emojiBtn = t.closest('.' + NS + '-emoji');
-                if (emojiBtn) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const show = !(emojiPanel && emojiPanel.classList.contains(NS + '-emoji-show'));
-                    toggleEmojiPanel(show);
-                    return;
-                }
-                const uploadBtn = t.closest('.' + NS + '-upload');
-                if (uploadBtn) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    console.log('[' + NS + '] 打开文件选择');
-                    ensureUploadInput().click();
-                }
-            }, true);
-        }
 
         const obs = new MutationObserver(function (muts) {
             for (let i = 0; i < muts.length; i++) {
@@ -1283,11 +1297,12 @@
 
             /* 上传/表情按钮 */
             '.' + NS + '-upload, .' + NS + '-emoji{',
-            '  position:absolute;top:50%;transform:translateY(-50%);',
+            '  position:absolute;z-index:6;margin:0;',
             '  width:18px;height:18px;padding:0;line-height:16px;',
             '  font-size:13px;text-align:center;',
             '  color:rgba(200,210,225,.7);background:transparent;',
-            '  border:none;border-radius:9px;cursor:pointer;transition:opacity .12s,background .12s;',
+            '  border:none;border-radius:9px;cursor:pointer;',
+            '  transition:background .12s;',
             '}',
             '.' + NS + '-upload:hover, .' + NS + '-emoji:hover{color:#fff;background:rgba(140,140,140,.25);}',
             /* 上传状态 */
