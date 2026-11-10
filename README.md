@@ -2,7 +2,7 @@
 
 A Tampermonkey / Violentmonkey / ScriptCat userscript for Deep Vein Idle chat.
 
-The script is `dvi-chat-plus.user.js`, running on `https://deepveinidle.com/`. It reads the page DOM, uses `GM_xmlhttpRequest` only for image uploads, and does not touch accounts or saves.
+The script is `dvi-chat-plus.user.js`, running on `https://deepveinidle.com/`. It reads the page DOM and does not touch accounts or saves.
 
 ## Features
 
@@ -11,7 +11,6 @@ The script is `dvi-chat-plus.user.js`, running on `https://deepveinidle.com/`. I
 - `@` button to mention a user
 - Links rendered as buttons with a confirmation dialog
 - Inline small images; large images become buttons with fullscreen preview
-- Image upload via paste or the 📎 button, trying catbox / litterbox / uguu in order
 - Emoji picker inserts sticker images
 - Scroll-to-bottom button
 - One-click input clear
