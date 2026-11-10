@@ -2,6 +2,12 @@
 
 脚本版本变更都记在这里，脚本正文不放更新说明。
 
+## v1.2.13
+
+- main 分支改为不含图片上传的版本：移除 📎 按钮、粘贴上传和 catbox / litterbox / uguu 图床请求，`@grant` 回退为 `none`，四处 `@connect` 一并删除。
+- 保留图片链接内联预览、超大全屏预览与原生 emoji 表情面板。
+- 图片上传版本改到 `remove-image-upload` 分支继续维护。
+
 ## v1.2.12
 
 - 表情图链接去掉 `@版本号`：改走 `cdn.jsdelivr.net/gh/jdecked/twemoji/assets/72x72/...`，链接里不再出现 `@`，发送时不会被游戏解析成提及。
