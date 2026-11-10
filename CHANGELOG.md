@@ -6,7 +6,7 @@
 
 - main 分支改为不含图片上传的版本：移除 📎 按钮、粘贴上传和 catbox / litterbox / uguu 图床请求，`@grant` 回退为 `none`，四处 `@connect` 一并删除。
 - 保留图片链接内联预览、超大全屏预览与原生 emoji 表情面板。
-- 图片上传版本改到 `remove-image-upload` 分支继续维护。
+- 图片上传版本改到 `keep-image-upload` 分支继续维护。
 
 ## v1.2.12
 
