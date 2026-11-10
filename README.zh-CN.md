@@ -37,6 +37,10 @@ npm run bump -- minor                # 升 minor 版本
 npm run bump -- major                # 升 major 版本
 ```
 
+## 发布
+
+推送到 `main` 且改动 `dvi-chat-plus.user.js` 时，Greasy Fork 通过仓库 webhook 自动同步新版本；忘记升版本号时工作流会自动升 patch。一次性配置见 [docs/greasyfork-sync.md](docs/greasyfork-sync.md)。
+
 ## 目录
 
 ```
@@ -48,6 +52,11 @@ npm run bump -- major                # 升 major 版本
 ├── scripts/
 │   ├── check.mjs           发布前自检
 │   └── bump-version.mjs    升版
+├── docs/
+│   └── greasyfork-sync.md  Greasy Fork 发布配置
+├── .github/
+│   └── workflows/
+│       └── publish.yml     发布流水线
 └── .vscode/settings.json
 ```
 

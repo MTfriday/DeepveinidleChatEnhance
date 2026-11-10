@@ -35,6 +35,10 @@ npm run bump -- minor                # bump minor version
 npm run bump -- major                # bump major version
 ```
 
+## Publishing
+
+Pushing to `main` with a change to `dvi-chat-plus.user.js` publishes a new version to Greasy Fork through the repository webhook; the workflow bumps the patch version when you forget to. One-time setup is described in [docs/greasyfork-sync.md](docs/greasyfork-sync.md).
+
 ## Directory
 
 ```
@@ -46,6 +50,11 @@ npm run bump -- major                # bump major version
 ├── scripts/
 │   ├── check.mjs           pre-release self-check
 │   └── bump-version.mjs    version bump
+├── docs/
+│   └── greasyfork-sync.md  Greasy Fork publishing setup
+├── .github/
+│   └── workflows/
+│       └── publish.yml     publish pipeline
 └── .vscode/settings.json
 ```
 
