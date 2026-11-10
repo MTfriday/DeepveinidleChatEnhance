@@ -441,11 +441,6 @@
         return (clone.textContent || '').replace(/\s+/g, ' ').trim();
     }
 
-    // 链接里的 @ 会被游戏当成提及解析，转成等价的 %40 再填进输入框
-    function encodeAtInUrl(url) {
-        return String(url || '').replace(/@/g, '%40');
-    }
-
     function pickCompose() {
         const main = document.querySelector('input.chat-input[data-input]');
         if (main) return main;
@@ -627,13 +622,6 @@
         }
     }
 
-    function placeClear(form, btn) {
-        const send = form.querySelector('.chat-send');
-        if (!send) { btn.style.right = '72px'; return; }
-        const gap = form.offsetWidth - send.offsetLeft + 6;
-        btn.style.right = Math.max(24, gap) + 'px';
-    }
-
     function ensureClearButton() {
         const form = document.querySelector('form.chat-compose');
         const input = form && form.querySelector('input.chat-input[data-input]');
@@ -649,9 +637,7 @@
             btn.textContent = '×';
             btn.title = '清空输入';
             btn.setAttribute('data-no-i18n', '');
-            btn.addEventListener('click', function (ev) {
-                ev.preventDefault();
-                ev.stopPropagation();
+            pressAction(btn, function () {
                 const cur = form.querySelector('input.chat-input[data-input]');
                 if (!cur || !cur.value) return;
                 cur.value = '';
@@ -662,7 +648,7 @@
             });
             form.appendChild(btn);
         }
-        placeClear(form, btn);
+        placeComposeButton(btn, form, input, clearRightPx(form));
 
         if (!input.hasAttribute('data-ce-clear')) {
             input.setAttribute('data-ce-clear', '');
@@ -679,11 +665,8 @@
         return Math.max(24, gap);
     }
 
-    const EMOJI_LIST = [
-        ['😀', '1f600'], ['😂', '1f602'], ['😍', '1f60d'], ['🤔', '1f914'],
-        ['👍', '1f44d'], ['👎', '1f44e'], ['🔥', '1f525'], ['😭', '1f62d'],
-        ['😎', '1f60e'], ['🎉', '1f389'], ['🙏', '1f64f'], ['💖', '1f496'],
-    ];
+    // 原生表情字符，点击直接写进输入框
+    const EMOJI_LIST = ['😀', '😂', '😍', '🤔', '👍', '👎', '🔥', '😭', '😎', '🎉', '🙏', '💖'];
 
     let emojiPanel = null;
 
@@ -727,24 +710,16 @@
         panel.className = NS + '-emoji-panel';
         const grid = document.createElement('div');
         grid.className = NS + '-emoji-grid';
-        EMOJI_LIST.forEach(function (pair) {
+        EMOJI_LIST.forEach(function (ch) {
             const item = document.createElement('button');
             item.type = 'button';
             item.className = NS + '-emoji-item';
-            item.title = pair[0];
-            const img = document.createElement('img');
-            img.src = 'https://cdn.jsdelivr.net/gh/jdecked/twemoji/assets/72x72/' + pair[1] + '.png';
-            img.alt = pair[0];
-            img.addEventListener('error', function () {
-                // CDN 不可用时退回字符表情，至少保证面板可用
-                item.textContent = pair[0];
-                item.style.fontSize = '18px';
-            });
-            item.appendChild(img);
+            item.title = ch;
+            item.textContent = ch;
             item.addEventListener('click', function (ev) {
                 ev.preventDefault();
                 ev.stopPropagation();
-                fillCompose(encodeAtInUrl(img.src));
+                fillCompose(ch);
                 toggleEmojiPanel(false);
             });
             grid.appendChild(item);
@@ -1088,7 +1063,7 @@
 
             /* 清空输入 */
             '.' + NS + '-clear{',
-            '  position:absolute;top:50%;transform:translateY(-50%);',
+            '  position:absolute;',
             '  width:18px;height:18px;padding:0;line-height:16px;',
             '  font-size:13px;text-align:center;',
             '  color:rgba(200,210,225,.7);background:transparent;',
@@ -1116,11 +1091,12 @@
             '.' + NS + '-emoji-panel.' + NS + '-emoji-show{display:block;}',
             '.' + NS + '-emoji-grid{display:flex;flex-wrap:wrap;gap:4px;}',
             '.' + NS + '-emoji-item{',
-            '  width:32px;height:32px;padding:2px;border:none;border-radius:4px;',
+            '  width:32px;height:32px;padding:0;border:none;border-radius:4px;',
+            '  display:flex;align-items:center;justify-content:center;',
+            '  font-size:19px;line-height:1;',
             '  background:transparent;cursor:pointer;',
             '}',
             '.' + NS + '-emoji-item:hover{background:rgba(140,140,140,.25);}',
-            '.' + NS + '-emoji-item img{width:100%;height:100%;object-fit:contain;}',
 
             /* 通用隐藏，保留占位 */
             '.' + NS + '-hide{opacity:0;pointer-events:none;}',
