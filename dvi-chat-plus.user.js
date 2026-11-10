@@ -9,7 +9,11 @@
 // @match        https://www.deepveinidle.com/*
 // @license      MIT
 // @run-at       document-idle
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @connect      catbox.moe
+// @connect      files.catbox.moe
+// @connect      litterbox.catbox.moe
+// @connect      uguu.se
 // @icon         https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f4ac.png
 // ==/UserScript==
 // Icon by Twitter/Twemoji, licensed CC-BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
@@ -441,6 +445,11 @@
         return (clone.textContent || '').replace(/\s+/g, ' ').trim();
     }
 
+    // 链接里的 @ 会被游戏当成提及解析，转成等价的 %40 再填进输入框
+    function encodeAtInUrl(url) {
+        return String(url || '').replace(/@/g, '%40');
+    }
+
     function pickCompose() {
         const main = document.querySelector('input.chat-input[data-input]');
         if (main) return main;
@@ -669,6 +678,140 @@
     const EMOJI_LIST = ['😀', '😂', '😍', '🤔', '👍', '👎', '🔥', '😭', '😎', '🎉', '🙏', '💖'];
 
     let emojiPanel = null;
+    let uploadInput = null;
+
+    function showUploadStatus(msg, ok) {
+        let el = document.querySelector('.' + NS + '-upload-status');
+        if (!el) {
+            el = document.createElement('div');
+            el.className = NS + '-upload-status';
+            document.body.appendChild(el);
+        }
+        el.textContent = msg;
+        el.classList.toggle(NS + '-upload-error', !ok);
+        if (el._t) clearTimeout(el._t);
+        el._t = setTimeout(function () { el.remove(); }, 3000);
+    }
+
+    const UPLOAD_ENDPOINTS = [
+        {
+            url: 'https://catbox.moe/user/api.php',
+            append: function (fd, file) {
+                fd.append('reqtype', 'fileupload');
+                fd.append('fileToUpload', file, file.name || 'image.png');
+            },
+            parse: function (text) { return (text || '').trim(); },
+        },
+        {
+            url: 'https://litterbox.catbox.moe/resources/internals/api.php',
+            append: function (fd, file) {
+                fd.append('reqtype', 'fileupload');
+                fd.append('time', '12h');
+                fd.append('fileToUpload', file, file.name || 'image.png');
+            },
+            parse: function (text) { return (text || '').trim(); },
+        },
+        {
+            url: 'https://uguu.se/upload',
+            append: function (fd, file) {
+                fd.append('files[]', file, file.name || 'image.png');
+            },
+            parse: function (text) {
+                try {
+                    const j = JSON.parse(text || '');
+                    return j && j.files && j.files[0] ? (j.files[0].url || '') : '';
+                } catch (e) {
+                    return '';
+                }
+            },
+        },
+    ];
+
+    function uploadImageFile(file) {
+        if (!file || !/^image\//.test(file.type || '')) return;
+        console.log('[' + NS + '] 开始上传图片', file.type, file.size + 'B');
+        showUploadStatus('上传中…', true);
+
+        let index = 0;
+        const failed = [];
+        const attempt = function () {
+            if (index >= UPLOAD_ENDPOINTS.length) {
+                showUploadStatus('上传失败', false);
+                if (failed.length) console.warn('[' + NS + '] 图床依次失败：' + failed.join(' | '));
+                return;
+            }
+            const ep = UPLOAD_ENDPOINTS[index++];
+            const host = ep.url.replace(/^https?:\/\//, '').split('/')[0];
+            const fd = new FormData();
+            ep.append(fd, file);
+
+            const finish = function (text) {
+                const url = ep.parse(text);
+                if (/^https?:\/\//.test(url || '')) {
+                    fillCompose(encodeAtInUrl(String(url).trim()));
+                    showUploadStatus('上传成功', true);
+                } else {
+                    failed.push(host + ':返回内容非链接');
+                    attempt();
+                }
+            };
+
+            if (typeof GM_xmlhttpRequest === 'function') {
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: ep.url,
+                    data: fd,
+                    timeout: 8000,
+                    onload: function (res) {
+                        if (res.status < 200 || res.status >= 300) {
+                            failed.push(host + ':HTTP ' + res.status);
+                            attempt();
+                            return;
+                        }
+                        finish(res.responseText || '');
+                    },
+                    onerror: function (e) {
+                        failed.push(host + ':' + ((e && e.error) || '网络错误'));
+                        attempt();
+                    },
+                    ontimeout: function () {
+                        failed.push(host + ':超时');
+                        attempt();
+                    },
+                });
+            } else {
+                fetch(ep.url, { method: 'POST', body: fd })
+                    .then(function (r) {
+                        if (!r.ok) {
+                            failed.push(host + ':HTTP ' + r.status);
+                            attempt();
+                            return '';
+                        }
+                        return r.text();
+                    })
+                    .then(function (text) { if (text) finish(text); })
+                    .catch(function (e) {
+                        failed.push(host + ':' + ((e && e.message) || '网络错误'));
+                        attempt();
+                    });
+            }
+        };
+        attempt();
+    }
+
+    function ensureUploadInput() {
+        if (uploadInput && document.body.contains(uploadInput)) return uploadInput;
+        uploadInput = document.createElement('input');
+        uploadInput.type = 'file';
+        uploadInput.accept = 'image/*';
+        uploadInput.style.display = 'none';
+        uploadInput.addEventListener('change', function () {
+            if (uploadInput.files && uploadInput.files[0]) uploadImageFile(uploadInput.files[0]);
+            uploadInput.value = '';
+        });
+        document.body.appendChild(uploadInput);
+        return uploadInput;
+    }
 
     // 按下即触发：不依赖 click，避免游戏在鼠标抬起前改变布局导致 click 落空
     function pressAction(el, fn) {
@@ -702,6 +845,61 @@
         const size = btn.offsetHeight || 18;
         btn.style.right = rightPx + 'px';
         btn.style.top = (ir.top - fr.top + (ir.height - size) / 2) + 'px';
+    }
+
+    function ensureUploadButton() {
+        const form = document.querySelector('form.chat-compose');
+        const input = form && form.querySelector('input.chat-input[data-input]');
+        if (!form || !input) return;
+        if (getComputedStyle(form).position === 'static') form.style.position = 'relative';
+
+        let btn = form.querySelector('.' + NS + '-upload');
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = NS + '-upload';
+            btn.textContent = '📎';
+            btn.title = '上传图片';
+            btn.setAttribute('data-no-i18n', '');
+            pressAction(btn, function () {
+                console.log('[' + NS + '] 打开文件选择');
+                ensureUploadInput().click();
+            });
+            form.appendChild(btn);
+        }
+        placeComposeButton(btn, form, input, clearRightPx(form) + 22);
+
+        if (!input.hasAttribute('data-ce-upload')) {
+            input.setAttribute('data-ce-upload', '');
+            const onPaste = function (e) {
+                const cd = e.clipboardData;
+                if (!cd) return;
+                let file = null;
+                const items = cd.items;
+                if (items) {
+                    for (let i = 0; i < items.length; i++) {
+                        if (items[i].type && items[i].type.indexOf('image/') === 0) {
+                            file = items[i].getAsFile();
+                            if (file) break;
+                        }
+                    }
+                }
+                if (!file && cd.files) {
+                    for (let i = 0; i < cd.files.length; i++) {
+                        if (cd.files[i].type && cd.files[i].type.indexOf('image/') === 0) {
+                            file = cd.files[i];
+                            break;
+                        }
+                    }
+                }
+                if (!file) return;
+                e.preventDefault();
+                e.stopPropagation();
+                uploadImageFile(file);
+            };
+            // 捕获阶段监听，避免被游戏自己的 paste 处理抢先拦截
+            input.addEventListener('paste', onPaste, true);
+        }
     }
 
     function ensureEmojiPanel() {
@@ -775,7 +973,7 @@
             });
             form.appendChild(btn);
         }
-        placeComposeButton(btn, form, input, clearRightPx(form) + 22);
+        placeComposeButton(btn, form, input, clearRightPx(form) + 44);
         ensureEmojiPanel();
 
         if (!document.body.hasAttribute('data-ce-emoji-close')) {
@@ -791,6 +989,7 @@
     function ensureHud() {
         ensureJumpButton();
         ensureClearButton();
+        ensureUploadButton();
         ensureEmojiButton();
     }
     // 翻译按钮搬到气泡外，紧跟气泡；先清掉上一轮遗留的同名按钮，避免越点越多
@@ -1071,8 +1270,8 @@
             '}',
             '.' + NS + '-clear:hover{color:#fff;background:rgba(140,140,140,.25);}',
 
-            /* 表情按钮 */
-            '.' + NS + '-emoji{',
+            /* 上传/表情按钮 */
+            '.' + NS + '-upload, .' + NS + '-emoji{',
             '  position:absolute;z-index:6;margin:0;',
             '  width:18px;height:18px;padding:0;line-height:16px;',
             '  font-size:13px;text-align:center;',
@@ -1080,7 +1279,14 @@
             '  border:none;border-radius:9px;cursor:pointer;',
             '  transition:background .12s;',
             '}',
-            '.' + NS + '-emoji:hover{color:#fff;background:rgba(140,140,140,.25);}',
+            '.' + NS + '-upload:hover, .' + NS + '-emoji:hover{color:#fff;background:rgba(140,140,140,.25);}',
+            /* 上传状态 */
+            '.' + NS + '-upload-status{',
+            '  position:fixed;right:16px;bottom:16px;z-index:2147483000;',
+            '  padding:8px 12px;border-radius:6px;font-size:12px;color:#fff;',
+            '  background:rgba(40,120,60,.92);box-shadow:0 4px 16px rgba(0,0,0,.35);',
+            '}',
+            '.' + NS + '-upload-status.' + NS + '-upload-error{background:rgba(160,40,40,.92);}',
             /* 表情面板 */
             '.' + NS + '-emoji-panel{',
             '  position:fixed;z-index:2147483000;display:none;',

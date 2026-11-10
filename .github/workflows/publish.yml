@@ -1,0 +1,87 @@
+name: Publish userscript
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - dvi-chat-plus.user.js
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-greasyfork
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Syntax and self check
+        run: |
+          node --check dvi-chat-plus.user.js
+          npm run check
+
+      - name: Compare @version with the previous push
+        id: version
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          current="$(sed -n 's|^// @version[[:space:]]*||p' dvi-chat-plus.user.js | head -n 1)"
+          previous=""
+          if [ -n "${BEFORE}" ] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            previous="$(git show "${BEFORE}:dvi-chat-plus.user.js" 2>/dev/null | sed -n 's|^// @version[[:space:]]*||p' | head -n 1 || true)"
+          fi
+          echo "previous=${previous:-<none>} current=${current}"
+          if [ -z "${previous}" ] || [ "${previous}" = "${current}" ]; then
+            echo "already_bumped=false" >> "$GITHUB_OUTPUT"
+            echo "版本号未变化，稍后由工作流升 patch"
+          else
+            newer="$(printf '%s\n%s\n' "${previous}" "${current}" | sort -V | tail -n 1)"
+            if [ "${newer}" != "${current}" ]; then
+              echo "::error::@version ${current} 不大于上一次的 ${previous}，Greasy Fork 会拒绝这次同步"
+              exit 1
+            fi
+            echo "already_bumped=true" >> "$GITHUB_OUTPUT"
+            echo "版本号已递增：${previous} -> ${current}"
+          fi
+
+      - name: Bump patch version
+        if: steps.version.outputs.already_bumped != 'true'
+        run: |
+          set -euo pipefail
+          npm run bump
+          next="$(sed -n 's|^// @version[[:space:]]*||p' dvi-chat-plus.user.js | head -n 1)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dvi-chat-plus.user.js package.json
+          git commit -m "chore: 升版本号到 v${next}"
+          git push
+
+      - name: Tag and create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's|^// @version[[:space:]]*||p' dvi-chat-plus.user.js | head -n 1)"
+          if git rev-parse -q --verify "refs/tags/v${version}" >/dev/null; then
+            echo "标签 v${version} 已存在，跳过"
+            exit 0
+          fi
+          git tag "v${version}"
+          git push origin "v${version}"
+          gh release create "v${version}" dvi-chat-plus.user.js \
+            --title "v${version}" \
+            --generate-notes

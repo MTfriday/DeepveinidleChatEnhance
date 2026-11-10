@@ -4,7 +4,7 @@ Deep Vein Idle 聊天栏的 Tampermonkey / Violentmonkey / ScriptCat 用户脚�
 
 脚本本体为根目录的 `dvi-chat-plus.user.js`，运行于 `https://deepveinidle.com/`
 
-读取页面 DOM，不接触账号与存档
+读取页面 DOM；图片上传时使用 `GM_xmlhttpRequest`，不接触账号与存档
 
 ## 功能
 
@@ -13,6 +13,7 @@ Deep Vein Idle 聊天栏的 Tampermonkey / Violentmonkey / ScriptCat 用户脚�
 - `@` 按钮，点击在输入框头部补 `@名字`
 - 链接渲染为按钮，点击弹确认窗后才打开
 - 图片小图内联显示，超大图转按钮并支持全屏预览
+- 输入框支持粘贴或 📎 按钮上传图片，依次尝试 catbox / litterbox / uguu
 - 表情按钮打开表情面板，点击插入原生表情字符
 - 聊天翻离底部时显示回底按钮
 - 输入框有草稿时显示一键清空按钮
@@ -36,6 +37,10 @@ npm run bump -- minor                # 升 minor 版本
 npm run bump -- major                # 升 major 版本
 ```
 
+## 发布
+
+推送到 `main` 且改动 `dvi-chat-plus.user.js` 时，Greasy Fork 通过仓库 webhook 自动同步新版本；忘记升版本号时工作流会自动升 patch。一次性配置见 [docs/greasyfork-sync.md](docs/greasyfork-sync.md)。
+
 ## 目录
 
 ```
@@ -47,6 +52,11 @@ npm run bump -- major                # 升 major 版本
 ├── scripts/
 │   ├── check.mjs           发布前自检
 │   └── bump-version.mjs    升版
+├── docs/
+│   └── greasyfork-sync.md  Greasy Fork 发布配置
+├── .github/
+│   └── workflows/
+│       └── publish.yml     发布流水线
 └── .vscode/settings.json
 ```
 
