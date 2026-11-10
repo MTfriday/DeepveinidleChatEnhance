@@ -12,7 +12,7 @@ The script is `dvi-chat-plus.user.js`, running on `https://deepveinidle.com/`. I
 - Links rendered as buttons with a confirmation dialog
 - Inline small images; large images become buttons with fullscreen preview
 - Image upload via paste or the 📎 button, trying catbox / litterbox / uguu in order
-- Emoji picker inserts sticker images
+- Emoji picker inserts native emoji characters
 - Scroll-to-bottom button
 - One-click input clear
 - Supports the game's auto-translation UI
