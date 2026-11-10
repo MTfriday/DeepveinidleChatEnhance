@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [DVI]聊天增强
 // @namespace    https://deepveinidle.com/
-// @version      1.2.12
+// @version      1.2.13
 // @description  Deep Vein Idle 聊天栏增强：气泡排版、快捷复读、链接与图片安全预览。
 // @author       MT_
 // @match        https://deepveinidle.com/*
@@ -24,7 +24,7 @@
     window.__DVI_CHAT_PLUS__ = true;
 
 
-    const SCRIPT_VERSION = '1.2.12';
+    const SCRIPT_VERSION = '1.2.13';
 
     const NS = 'dvi-ce';
 
